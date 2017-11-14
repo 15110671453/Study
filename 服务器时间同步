@@ -1,0 +1,113 @@
+服务器时间同步
+
+一:NTP服务
+
+Linux服务器运行久时，系统时间就会存在一定的误差，一般情况下可以使用date命令进行时间设置，但在做数据库集群分片等操作时对多台机器的时间差是有要求的，此时就需要使用ntpdate进行时间同步。
+
+date命令：
+date :查看当前时间，结果如下：Tue Mar 4 01:36:45 CST 2014
+date -s 09:38:40 :设置当前时间，结果如下：Tue Mar 4 09:38:40 CST 2014
+
+ntpdate命令：
+ntpdate -u 210.72.145.44 :网络时间同步命令
+
+注意：若不加上-u参数， 会出现以下提示：no server suitable for synchronization found
+-u：从man ntpdate中可以看出-u参数可以越过防火墙与主机同步；
+210.72.145.44：中国国家授时中心的官方服务器。
+
+ntp常用服务器：
+中国国家授时中心：210.72.145.44
+NTP服务器(上海) ：ntp.api.bz
+
+美国：time.nist.gov 
+复旦：ntp.fudan.edu.cn 
+微软公司授时主机(美国) ：time.windows.com 
+台警大授时中心(台湾)：asia.pool.ntp.org
+
+   1.
+     NTP（Network Time Protocol 网络时间协议） 是用来使计算机时间同步化的一种协议.可以是使计算机对其服务器或者时钟源做同步化.他可以提供高精度的时间校正 LAN 上与标准时间小于1毫秒,WAN上几十毫秒.可以通过加密方式防止恶意的协议攻击.
+c/s 模式. 端口 123 
+  相关
+     nntp :Network news Transport Protocol 网络新闻传输协议.主要用于阅读和发布新闻文章(新闻组邮件)到Usenet上的Internet应用协议,也负责新闻在服务器间的传送。
+
+  安装
+     rpm -ivh /mnt/Packages/ntp-4.2.6p5-1.el6.x86_64.rpm  或者 yum -y install ntp
+    安装客户端: rpm -ivh /mnt/Packages/ntpdate-4.2.4p8-2.el6.x86_64.rpm
+     配置文件位置： ls /etc/ntp.conf
+    先查看123端口是否开放 ：netstat -anptu | grep 123 
+    启动: service ntpd start     开机自动启动:chkconfig ntpd on
+
+ 2.   服务器同步时间
+   ntpdate     #linux 时间同步命令
+  用法: ntpdate  ip或者服务器域名。
+  例： vim /etc/ntp.conf   找一个可以使用的ntp 时间服务器 
+  
+ 同步时间:[root xxx]#ntpdate 0.rhel.pool.ntp.org 
+注:已经运行ntp服务的机器,在执行相同的命令会报错.
+ 6 Mar 19:26:41ntpdate[3420]: the NTP socket is in use, exiting
+  错误原因：ntpd服务器正在运行中. 可以通过  ps aux | grep ntpd 查看ntpd正在运行.可以先关闭. service ntpd stop 在运行相同的命令
+
+
+3.搭建一个内网NTP服务器.让内网服务器通过此NTP服务器进行时间同步
+   前提:确保可以ping外网.
+   vim /etc/ntp.conf 
+    restrice 127.0.0.1
+   restrict -6 ::1
+    ##  增加的内容
+    restrict 192.168.1.0 mask 255.255.255.0 #允许这个192.168.1.0网段中的服务器可以访问ntp服务器同步时间
+   restrict 133.100.11.8 #允许单个ip地址访问本服务器
+   server 133.100.11.8 #指定本ntp服务器的上游ntp服务器为133.100.11.8.并设置为首先服务器.同步时间为从上到下.写的越靠前优先级越高。(写在所有server最前面ip地址为首先服务器,此服务器同步不了时间.寻找下一个NTP服务器.）11.8是日本福冈大学NTP服务器.
+
+  #取消这两行的注释
+  server 127.127.1.0  #local clock 如果上面的服务器都无法同步时间.就和本地系统时间同步  127.127.1.0 是ip不是网段
+   fudge 127.127.1.0 stratum 10  #127.1.0 为10层.ntp和127.1.0同步后.就变成11层。ntp是层次阶级的.同步上层服务器的stratum 大小不能超过或等于16
+ 
+ntp 服务的启动与观察
+# ntpdate 0.rhel.pool.ntp.org
+date -s "xx"  设置一个时间然后启动
+service ntpd start  或者 /etc/init.d/ntpd start   可以通过 netstart -ln | grep 123 查看端口是否启动
+
+#ntpstat       列出是否与上游服务器连接.需要过5分钟.
+
+#ntpq -p    列出我们的ntp 服务器与上游服务器的连接状态
+   
+指令“ntpq -p”可以列出目前我们的NTP与相关的上层NTP的状态，以上的几个字段的意义如下：
+remote：即remote - 本机和上层ntp的ip或主机名，“+”表示优先，“*”表示次优先。
+refid：参考的上一层NTP主机的地址
+st：即stratum阶层
+poll：下次更新在几秒之后
+offset：时间补偿的结果
+ 
+客户同步时间：
+[root@xuegod64 ~]#ntpdate 192.168.1.63
+26 Mar 21:11:39ntpdate[2955]: adjust time server 192.168.1.63 offset 0.000101 sec
+常见的错误：
+25 Apr 15:30:17 ntpdate[11520]: no serversuitable for synchronization found
+其实，这不是一个错误。而是由于每次重启NTP服务器之后大约要3－5分钟客户端才能与server建立正常的通讯连接。当此时用客户端连接服务端就会报这样的信息。一般等待几分钟就可以了。 
+
+配置文件:/etc/sysconfig/clock  #linux的主要时区设定文件.每次开机后.linux会自动的读取这个文件来设定自己的系统所默认要显示的时间
+  
+
+拓展:系统时间 与BIos 时间是不是一定一样
+hwclock -r  读出bios时间参数
+hwclock -w  将当前系统时间写入bios中
+
+
+
+客户端配置.
+不同机器之间的时间同步
+为了避免主机时间因为长期运作下所导致的时间偏差，进行时间同步(synchronize)的工作是非常必要的。
+ 
+同步时间，可以使用ntpdate命令，也可以使用ntpd服务。
+
+ 方法一：使用ntpdate比较简单。格式如下：
+#ntpdate 192.168.1.63
+27 Mar 22:02:27ntpdate[44496]: step time server 192.168.1.63 offset 89029.272714 sec
+ 
+但这样的同步，只是强制性的将系统时间设置为ntp服务器时间。只是治标不治本。所以，一般配合cron命令，来进行定期同步设置。比如，在crontab中添加：
+#crontab -e
+0 12 * * */usr/sbin/ntpdate 192.168.1.63   每天中午12点同步一下时间
+ 
+方法2：使用ntpd服务进行同步。
+ 
+要注意的是，ntpd 有一个自我保护设置: 如果本机与上源时间相差太大, ntpd 不运行. 所以新设置的时间服务器一定要先 ntpdate 从上源取得时间初值, 然后启动 ntpd服务。
